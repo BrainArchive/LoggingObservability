@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,8 +10,6 @@ import (
 
 	"boot.dev/linko/internal/store"
 )
-
-var logger = log.New(os.Stderr, "DEBUG: ", log.LstdFlags)
 
 func main() {
 
