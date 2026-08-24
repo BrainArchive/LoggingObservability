@@ -95,6 +95,7 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 		err := bufferedWriter.Flush()
 		return err
 	}
+
 	return logger, closer, nil
 }
 
