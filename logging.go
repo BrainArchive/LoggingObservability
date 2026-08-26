@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -101,6 +102,20 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 	return logger, closer, nil
 }
 
+const logContextKey contextKey = "log_context"
+
+type LogContext struct {
+	Username string
+	Error    error
+}
+
+func httpError(ctx context.Context, w http.ResponseWriter, status int, err error) {
+	if logCtx, ok := ctx.Value(logContextKey).(*LogContext); ok {
+		logCtx.Error = err
+	}
+	http.Error(w, err.Error(), status)
+}
+
 type spyReadCloser struct {
 	io.ReadCloser
 	bytesRead int
@@ -135,22 +150,34 @@ func (w *spyResponseWriter) WriteHeader(statusCode int) {
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
+			logContext := &LogContext{}
+			// you need to actually set the value of r as the new assigned value.
+			r = r.WithContext(context.WithValue(r.Context(), logContextKey, logContext))
 
+			start := time.Now()
 			spyReader := &spyReadCloser{ReadCloser: r.Body}
 			r.Body = spyReader
-
 			spyWriter := &spyResponseWriter{ResponseWriter: w}
 			next.ServeHTTP(spyWriter, r)
-			logger.Info("Served request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"client_ip", r.RemoteAddr,
+
+			var attrs []any = []any{
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("client_ip", r.RemoteAddr),
 				slog.Duration("duration", time.Since(start)),
 				slog.Int("request_body_bytes", spyReader.bytesRead),
 				slog.Int("response_status", spyWriter.statusCode),
 				slog.Int("response_body_bytes", spyWriter.bytesWritten),
-			)
+			}
+
+			if logContext.Username != "" {
+				attrs = append(attrs, slog.String("user", logContext.Username))
+			}
+			if logContext.Error != nil {
+				attrs = append(attrs, slog.Any("error", logContext.Error))
+			}
+
+			logger.Info("Served request", attrs...)
 		})
 	}
 
